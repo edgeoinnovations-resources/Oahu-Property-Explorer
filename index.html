@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Oahu Property Explorer</title>
 
-<!-- MapLibre GL JS + PMTiles (open-source, no API key) -->
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 <script src="https://unpkg.com/pmtiles@2.11.0/dist/index.js"></script>
@@ -13,9 +12,7 @@
 <style>
   :root{
     --ink:#1c2b36; --muted:#5b6b78; --line:#e2e8ec; --panel:#ffffff;
-    --bg:#f4f6f8; --accent:#0072B2;               /* colourblind-safe blue */
-    --local:#0072B2; --absentee:#E69F00;          /* Okabe-Ito */
-    --condo:#009E73; --single:#56B4E9;
+    --bg:#f4f6f8; --accent:#08306b;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;font-family:system-ui,Segoe UI,Arial,sans-serif;color:var(--ink);background:var(--bg);}
@@ -23,7 +20,7 @@
   header{display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--ink);color:#fff;}
   header h1{font-size:17px;margin:0;font-weight:600;}
   header .sub{font-size:12px;color:#aab7c0;}
-  main{display:grid;grid-template-columns:250px 1fr 330px;min-height:0;}
+  main{display:grid;grid-template-columns:260px 1fr 330px;min-height:0;}
   .panel{background:var(--panel);overflow:auto;}
   #filters{border-right:1px solid var(--line);padding:14px;}
   #details{border-left:1px solid var(--line);padding:16px;font-size:14px;line-height:1.5;}
@@ -33,23 +30,25 @@
   h2:first-child{margin-top:0;}
   label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;}
   input,select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;}
-  .row{display:flex;gap:8px;}
-  .row > *{flex:1;}
+  .row{display:flex;gap:8px;} .row > *{flex:1;}
   button.reset{margin-top:14px;width:100%;padding:8px;border:0;border-radius:6px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;}
+  /* search */
+  #searchWrap{position:relative;}
+  #searchResults{position:absolute;z-index:20;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;box-shadow:0 6px 14px rgba(0,0,0,.12);max-height:260px;overflow:auto;display:none;}
+  .sr{padding:7px 9px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f3f5;}
+  .sr:hover{background:#eef4fb;}
   /* bottom bar */
   #bottom{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr)) 2fr 2fr;gap:10px;padding:10px 14px;background:var(--panel);border-top:1px solid var(--line);overflow:auto;}
   .kpi{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
-  .kpi .v{font-size:22px;font-weight:700;}
-  .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+  .kpi .v{font-size:22px;font-weight:700;} .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
   .card{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 12px;}
   .card .t{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px;}
   .bar{display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0;}
   .bar .lab{width:74px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .bar .track{flex:1;background:#e9eef2;border-radius:3px;height:12px;overflow:hidden;}
-  .bar .fill{height:100%;background:var(--accent);}
-  .bar .n{width:52px;text-align:right;color:var(--ink);}
-  #details .addr{font-size:19px;font-weight:700;margin:0 0 4px;}
-  #details .hint{color:var(--muted);}
+  .bar .fill{height:100%;}
+  .bar .n{width:52px;text-align:right;}
+  #details .addr{font-size:19px;font-weight:700;margin:0 0 4px;} #details .hint{color:var(--muted);}
   .legend{position:absolute;bottom:12px;right:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:11px;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,.12);}
   .legend .sw{display:inline-block;width:14px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px;}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.85);z-index:5;font-size:14px;color:var(--muted);}
@@ -63,8 +62,13 @@
   </header>
 
   <main>
-    <!-- FILTERS -->
     <div id="filters" class="panel">
+      <h2>Search address</h2>
+      <div id="searchWrap">
+        <input id="search" type="text" placeholder="e.g. Flamingo, 41-0582, Kailua…" autocomplete="off">
+        <div id="searchResults"></div>
+      </div>
+
       <h2>Price (assessed $)</h2>
       <div class="row">
         <div><label>Min</label><input id="fMin" type="number" step="50000" placeholder="0"></div>
@@ -83,27 +87,22 @@
       <button class="reset" id="reset">Reset filters</button>
     </div>
 
-    <!-- MAP -->
     <div id="map">
       <div id="mapEl"></div>
       <div id="loading">Loading parcels…</div>
       <div class="legend">
         <div style="font-weight:600;margin-bottom:4px;">Assessed value</div>
-        <div><span class="sw" style="background:#f0f0f0"></span>none / low</div>
-        <div><span class="sw" style="background:#fecc5c"></span>~$1M</div>
-        <div><span class="sw" style="background:#fd8d3c"></span>~$1.5M</div>
-        <div><span class="sw" style="background:#f03b20"></span>~$3M</div>
-        <div><span class="sw" style="background:#bd0026"></span>$5M+</div>
+        <div><span class="sw" style="background:#e8d8b0"></span>none / low</div>
+        <div><span class="sw" style="background:#cdbf93"></span>~$500K–1M</div>
+        <div><span class="sw" style="background:#6f9dc0"></span>~$1.5M</div>
+        <div><span class="sw" style="background:#2e6aa6"></span>~$3M</div>
+        <div><span class="sw" style="background:#08306b"></span>$5M+ (deep blue)</div>
       </div>
     </div>
 
-    <!-- DETAILS -->
-    <div id="details" class="panel">
-      <p class="hint">Click a parcel to see its summary.</p>
-    </div>
+    <div id="details" class="panel"><p class="hint">Click a parcel, or search an address, to see its summary.</p></div>
   </main>
 
-  <!-- KPIs + CHARTS -->
   <div id="bottom">
     <div class="kpi"><div class="v" id="kCount">–</div><div class="l">Parcels</div></div>
     <div class="kpi"><div class="v" id="kMed">–</div><div class="l">Median value</div></div>
@@ -115,49 +114,48 @@
 </div>
 
 <script>
-// ==== CONFIG: host these two files next to index.html ======================
 const DATA_PMTILES = "parcels.pmtiles";
 const DATA_ATTRS   = "attributes.json";
+const DATA_SEARCH  = "search.json";
 const OAHU = { center:[-157.98, 21.46], zoom:10 };
 
-// ==== helpers ==============================================================
 const fmt$ = n => n==null ? "–" : (n>=1e9 ? "$"+(n/1e9).toFixed(2)+"B"
                  : n>=1e6 ? "$"+(n/1e6).toFixed(2)+"M"
                  : "$"+Math.round(n).toLocaleString());
 const median = arr => { if(!arr.length) return null; const a=arr.slice().sort((x,y)=>x-y);
   const m=a.length>>1; return a.length%2?a[m]:(a[m-1]+a[m])/2; };
 const el = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let ATTR=null;                 // columnar attributes for analytics
-let map=null, ready=false;
+let ATTR=null, SEARCH=null, ready=false;
 
-// ==== map ==================================================================
 let protocol = new pmtiles.Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
 
-const style = {
-  version:8,
-  glyphs:"https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+const style = { version:8, glyphs:"https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources:{ carto:{ type:"raster",
     tiles:["https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"],
     tileSize:256, attribution:"© OpenStreetMap © CARTO" } },
-  layers:[{ id:"carto", type:"raster", source:"carto" }]
-};
+  layers:[{ id:"carto", type:"raster", source:"carto" }] };
 
-map = new maplibregl.Map({ container:"mapEl", style, center:OAHU.center, zoom:OAHU.zoom });
+const map = new maplibregl.Map({ container:"mapEl", style, center:OAHU.center, zoom:OAHU.zoom });
 map.addControl(new maplibregl.NavigationControl(), "top-left");
 map.addControl(new maplibregl.ScaleControl({unit:"imperial"}), "bottom-left");
 
+// light brown (low) -> deep blue (most expensive)
 const VALUE_COLOR = ["interpolate",["linear"],["coalesce",["get","TOTAL_VAL"],0],
-  0,"#f0f0f0", 500000,"#ffffb2", 1000000,"#fecc5c",
-  1500000,"#fd8d3c", 3000000,"#f03b20", 5000000,"#bd0026"];
+  0,"#e8d8b0", 500000,"#cdbf93", 1000000,"#a9b1a0",
+  1500000,"#6f9dc0", 3000000,"#2e6aa6", 5000000,"#08306b"];
 
 map.on("load", ()=>{
   map.addSource("parcels", { type:"vector", url:"pmtiles://"+DATA_PMTILES });
   map.addLayer({ id:"parcels-fill", type:"fill", source:"parcels", "source-layer":"parcels",
-    paint:{ "fill-color":VALUE_COLOR, "fill-opacity":0.75 } });
+    paint:{ "fill-color":VALUE_COLOR, "fill-opacity":0.78 } });
   map.addLayer({ id:"parcels-line", type:"line", source:"parcels", "source-layer":"parcels",
     minzoom:14, paint:{ "line-color":"#888", "line-width":0.4 } });
+  map.addLayer({ id:"parcels-highlight", type:"line", source:"parcels", "source-layer":"parcels",
+    filter:["==",["get","SITUS_ADDR"],"__none__"],
+    paint:{ "line-color":"#08306b", "line-width":3 } });
 
   map.on("click","parcels-fill",e=> showDetails(e.features[0].properties));
   map.on("mouseenter","parcels-fill",()=>map.getCanvas().style.cursor="pointer");
@@ -165,44 +163,60 @@ map.on("load", ()=>{
   ready=true; maybeDone();
 });
 
-// ==== load analytics attributes ===========================================
 fetch(DATA_ATTRS).then(r=>r.json()).then(j=>{
   ATTR=j;
-  // town dropdown
   const sel=el("fTown");
   j.cities.map((c,i)=>[c,i]).sort((a,b)=>a[0].localeCompare(b[0]))
     .forEach(([c,i])=>{ const o=document.createElement("option"); o.value=i; o.textContent=c; sel.appendChild(o); });
   maybeDone();
-}).catch(e=>{ el("loading").textContent="Could not load attributes.json"; });
+}).catch(()=>{ el("loading").textContent="Could not load attributes.json"; });
+
+fetch(DATA_SEARCH).then(r=>r.json()).then(a=>{ SEARCH=a; }).catch(()=>{});
 
 function maybeDone(){ if(ready && ATTR){ el("loading").style.display="none"; apply(); } }
 
-// ==== filters -> map + KPIs + charts ======================================
-["fMin","fMax","fType","fOwner","fAcres","fTown"].forEach(id=>{
-  el(id).addEventListener("input", apply); el(id).addEventListener("change", apply);
+// ---- address search ----
+el("search").addEventListener("input", ()=>{
+  const q=el("search").value.trim().toUpperCase(); const box=el("searchResults");
+  if(q.length<3 || !SEARCH){ box.style.display="none"; box.innerHTML=""; return; }
+  const out=[];
+  for(let i=0;i<SEARCH.length && out.length<8;i++){
+    if(SEARCH[i].addr && SEARCH[i].addr.toUpperCase().indexOf(q)>=0) out.push(SEARCH[i]);
+  }
+  box.innerHTML = out.map(r=>`<div class="sr" data-lon="${r.lon}" data-lat="${r.lat}" data-addr="${esc(r.addr)}">${esc(r.addr)}</div>`).join("");
+  box.style.display = out.length?"block":"none";
 });
+el("searchResults").addEventListener("click", e=>{
+  const d=e.target.closest(".sr"); if(!d) return;
+  gotoResult(parseFloat(d.dataset.lon), parseFloat(d.dataset.lat), d.dataset.addr);
+});
+function gotoResult(lon,lat,addr){
+  el("searchResults").style.display="none"; el("search").value=addr;
+  map.setFilter("parcels-highlight", ["==",["get","SITUS_ADDR"], addr]);
+  map.flyTo({ center:[lon,lat], zoom:17.5 });
+  map.once("idle", ()=>{
+    const fs=map.queryRenderedFeatures(map.project([lon,lat]), {layers:["parcels-fill"]});
+    if(fs.length) showDetails(fs[0].properties);
+  });
+}
+
+// ---- filters -> map + KPIs + charts ----
+["fMin","fMax","fType","fOwner","fAcres","fTown"].forEach(id=>{
+  el(id).addEventListener("input", apply); el(id).addEventListener("change", apply); });
 el("reset").addEventListener("click", ()=>{
   ["fMin","fMax","fAcres"].forEach(id=>el(id).value="");
-  ["fType","fOwner","fTown"].forEach(id=>el(id).value=""); apply();
-});
+  ["fType","fOwner","fTown"].forEach(id=>el(id).value=""); apply(); });
 
 function readFilters(){
-  const min = parseFloat(el("fMin").value); const max = parseFloat(el("fMax").value);
-  const acres = parseFloat(el("fAcres").value);
-  return {
-    min: isNaN(min)?null:min, max: isNaN(max)?null:max,
-    type: el("fType").value, owner: el("fOwner").value,
-    acres: isNaN(acres)?null:acres,
-    town: el("fTown").value===""?null:parseInt(el("fTown").value)
-  };
+  const min=parseFloat(el("fMin").value), max=parseFloat(el("fMax").value), ac=parseFloat(el("fAcres").value);
+  return { min:isNaN(min)?null:min, max:isNaN(max)?null:max,
+    type:el("fType").value, owner:el("fOwner").value, acres:isNaN(ac)?null:ac,
+    town:el("fTown").value===""?null:parseInt(el("fTown").value) };
 }
 
 function apply(){
-  if(!ready || !ATTR) return;
-  const f = readFilters();
-
-  // ---- map filter (runs on the vector tiles) ----
-  const mf = ["all"];
+  if(!ready || !ATTR) return; const f=readFilters();
+  const mf=["all"];
   if(f.min!=null) mf.push([">=",["coalesce",["get","TOTAL_VAL"],-1], f.min]);
   if(f.max!=null) mf.push(["<=",["coalesce",["get","TOTAL_VAL"],1e15], f.max]);
   if(f.type==="condo")  mf.push(["==",["get","IS_CONDO"],"Y"]);
@@ -211,83 +225,70 @@ function apply(){
   if(f.owner==="absentee") mf.push(["==",["get","OWNER_INSTATE"],"N"]);
   if(f.acres!=null) mf.push([">=",["coalesce",["get","GIS_ACRES"],0], f.acres]);
   if(f.town!=null) mf.push(["==",["get","SITUS_CITY"], ATTR.cities[f.town]]);
-  map.setFilter("parcels-fill", mf.length>1?mf:null);
-  map.setFilter("parcels-line", mf.length>1?mf:null);
+  const flt = mf.length>1?mf:null;
+  map.setFilter("parcels-fill", flt); map.setFilter("parcels-line", flt);
 
-  // ---- analytics (single pass over the columnar arrays) ----
-  const A=ATTR, vals=[]; let count=0, sum=0;
+  const A=ATTR, vals=[]; let count=0,sum=0;
   const bands=[0,500000,750000,1000000,1500000,2000000,3000000,5000000,1e15];
   const hist=new Array(bands.length-1).fill(0);
   let local=0,absentee=0,condo=0,single=0;
   for(let i=0;i<A.n;i++){
     const tv=A.total[i];
-    if(f.min!=null && (tv==null || tv<f.min)) continue;
-    if(f.max!=null && (tv==null || tv>f.max)) continue;
+    if(f.min!=null && (tv==null||tv<f.min)) continue;
+    if(f.max!=null && (tv==null||tv>f.max)) continue;
     if(f.type==="condo"  && A.condo[i]!==1) continue;
     if(f.type==="single" && A.condo[i]!==0) continue;
     if(f.owner==="local"    && A.instate[i]!==1) continue;
     if(f.owner==="absentee" && A.instate[i]!==0) continue;
-    if(f.acres!=null && (A.acres[i]==null || A.acres[i]<f.acres)) continue;
+    if(f.acres!=null && (A.acres[i]==null||A.acres[i]<f.acres)) continue;
     if(f.town!=null && A.cityIdx[i]!==f.town) continue;
     count++;
     if(tv!=null){ sum+=tv; vals.push(tv);
-      for(let b=0;b<hist.length;b++){ if(tv>=bands[b] && tv<bands[b+1]){ hist[b]++; break; } } }
+      for(let b=0;b<hist.length;b++){ if(tv>=bands[b]&&tv<bands[b+1]){ hist[b]++; break; } } }
     if(A.instate[i]===1) local++; else if(A.instate[i]===0) absentee++;
     if(A.condo[i]===1) condo++; else if(A.condo[i]===0) single++;
   }
-  el("kCount").textContent = count.toLocaleString();
-  el("kMed").textContent   = fmt$(median(vals));
-  el("kAvg").textContent   = fmt$(vals.length?sum/vals.length:null);
-  el("kSum").textContent   = fmt$(sum);
-
+  el("kCount").textContent=count.toLocaleString();
+  el("kMed").textContent=fmt$(median(vals));
+  el("kAvg").textContent=fmt$(vals.length?sum/vals.length:null);
+  el("kSum").textContent=fmt$(sum);
   const labels=["<500K","500-750K","750K-1M","1-1.5M","1.5-2M","2-3M","3-5M","5M+"];
-  el("chartHist").innerHTML = bars(labels, hist, "#0072B2");
-  el("chartMix").innerHTML =
-    bars(["Local","Out-of-state"], [local,absentee], ["#0072B2","#E69F00"]) +
-    '<div style="height:6px"></div>' +
-    bars(["Single","Condo"], [single,condo], ["#56B4E9","#009E73"]);
+  el("chartHist").innerHTML=bars(labels,hist,"#2e6aa6");
+  el("chartMix").innerHTML=
+    bars(["Local","Out-of-state"],[local,absentee],["#08306b","#c19a6b"])+
+    '<div style="height:6px"></div>'+
+    bars(["Single","Condo"],[single,condo],["#2e6aa6","#a9b1a0"]);
 }
 
-function bars(labels, values, color){
+function bars(labels,values,color){
   const max=Math.max(1,...values);
-  return labels.map((l,i)=>{
-    const c = Array.isArray(color)?color[i]:color;
-    const w = (100*values[i]/max).toFixed(1);
+  return labels.map((l,i)=>{ const c=Array.isArray(color)?color[i]:color;
+    const w=(100*values[i]/max).toFixed(1);
     return `<div class="bar"><span class="lab" title="${l}">${l}</span>`+
       `<span class="track"><span class="fill" style="width:${w}%;background:${c}"></span></span>`+
-      `<span class="n">${values[i].toLocaleString()}</span></div>`;
-  }).join("");
+      `<span class="n">${values[i].toLocaleString()}</span></div>`; }).join("");
 }
 
-// ==== details paragraph (ported from the pop-up) ==========================
 function showDetails(p){
   const money=n=>n==null?"":"$"+Math.round(n).toLocaleString();
-  const addr = (p.SITUS_ADDR&&String(p.SITUS_ADDR).trim()) || (p.MAIL_ADDR&&titleCase(p.MAIL_ADDR)) || ("TMK "+ (p.tmk||""));
-  const parts=[];
-  let sz = p.REC_SQFT>0?p.REC_SQFT:p.GIS_SQFT;
+  const addr=(p.SITUS_ADDR&&String(p.SITUS_ADDR).trim())||(p.MAIL_ADDR&&titleCase(p.MAIL_ADDR))||("TMK "+(p.tmk||""));
+  const parts=[]; let sz=p.REC_SQFT>0?p.REC_SQFT:p.GIS_SQFT;
   let intro="This parcel (TMK "+(p.tmk||"?")+")";
   if(sz>0){ intro+=" covers about "+Math.round(sz).toLocaleString()+" sq ft";
     if(p.GIS_ACRES>=0.1) intro+=" ("+Number(p.GIS_ACRES).toFixed(2)+" acres)"; }
   parts.push(intro+".");
-  if(p.JOIN_STATUS==="MATCHED" && p.OWNER){
-    let s="Owned by "+p.OWNER; if(p.OWNER2) s+=" and "+p.OWNER2;
-    if(/TRUST|\sTR$|\sTRS$/.test(String(p.OWNER).toUpperCase())) s+=", held in a trust";
-    parts.push(s+".");
-  }
-  parts.push(p.IS_CONDO==="Y" ? ("One of "+(p.REC_UNITS||"several")+" units under this TMK.")
-                              : "A single, standalone lot.");
+  if(p.JOIN_STATUS==="MATCHED" && p.OWNER){ let s="Owned by "+p.OWNER; if(p.OWNER2) s+=" and "+p.OWNER2;
+    if(/TRUST|\sTR$|\sTRS$/.test(String(p.OWNER).toUpperCase())) s+=", held in a trust"; parts.push(s+"."); }
+  parts.push(p.IS_CONDO==="Y"?("One of "+(p.REC_UNITS||"several")+" units under this TMK."):"A single, standalone lot.");
   if(p.VAL_STATUS==="VALUED" && p.TOTAL_VAL!=null){
     let s="Assessed"+(p.VAL_YEAR?(" for "+p.VAL_YEAR):"")+" at "+money(p.TOTAL_VAL);
     if(p.LAND_VAL!=null&&p.BLDG_VAL!=null) s+=" ("+money(p.LAND_VAL)+" land, "+money(p.BLDG_VAL)+" building)";
     parts.push(s+".");
-    if(p.IS_CONDO!=="Y" && p.VAL_PER_SQFT>0) parts.push("About "+money(p.VAL_PER_SQFT)+" per land sq ft.");
-  }
+    if(p.IS_CONDO!=="Y" && p.VAL_PER_SQFT>0) parts.push("About "+money(p.VAL_PER_SQFT)+" per land sq ft."); }
   if(p.OWNER_INSTATE==="N") parts.push("Owner's mailing address is out-of-state (possible absentee owner).");
   else if(p.OWNER_INSTATE==="Y") parts.push("Owner is local (Hawaii mailing address).");
-
-  el("details").innerHTML = '<p class="addr">'+addr+'</p><p>'+parts.join(" ")+'</p>';
+  el("details").innerHTML='<p class="addr">'+esc(addr)+'</p><p>'+parts.join(" ")+"</p>";
 }
-
 function titleCase(s){ return String(s).toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()); }
 </script>
 </body>
