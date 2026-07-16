@@ -100,6 +100,16 @@
       <label>Town</label>
       <select id="fTown"><option value="">All towns</option></select>
       <button class="reset" id="reset">Reset filters</button>
+
+      <h2>311 service requests</h2>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--ink);margin:2px 0 8px;">
+        <input type="checkbox" id="r311On" checked style="width:auto;padding:0;margin:0;"> Show 311 reports on map
+      </label>
+      <label>Request type</label>
+      <select id="r311Type"><option value="">All types</option></select>
+      <label>Status</label>
+      <select id="r311Status"><option value="">All statuses</option><option>Received</option><option>In Progress</option><option>Closed</option><option>Canceled</option></select>
+      <div id="r311Count" style="font-size:11px;color:var(--muted);margin-top:8px;">Loading 311 reports…</div>
       </div>
     </div>
 
@@ -114,6 +124,14 @@
         <div><span class="sw" style="background:#6f9dc0"></span>~$1.5M</div>
         <div><span class="sw" style="background:#2e6aa6"></span>~$3M</div>
         <div><span class="sw" style="background:#08306b"></span>$5M+ (deep blue)</div>
+      </div>
+      <div class="legend" id="legend311" style="top:38px;right:12px;bottom:auto;display:none;">
+        <div style="font-weight:600;margin-bottom:4px;">311 status</div>
+        <div><span class="sw" style="background:#e8a33d"></span>Received</div>
+        <div><span class="sw" style="background:#3b7dd8"></span>In progress</div>
+        <div><span class="sw" style="background:#4a9d5b"></span>Closed</div>
+        <div><span class="sw" style="background:#9aa4ab"></span>Canceled</div>
+        <div style="margin-top:4px;"><span class="sw" style="background:transparent;border:1.5px solid #888;"></span>hollow = approx (zip)</div>
       </div>
     </div>
 
@@ -137,7 +155,12 @@
 const DATA_PMTILES = "parcels.pmtiles";
 const DATA_ATTRS   = "attributes.json";
 const DATA_SEARCH  = "search.json";
+const DATA_REPORTS = "reports.geojson";
 const OAHU = { center:[-157.98, 21.46], zoom:10 };
+
+// 311 status colors
+const R311_COLOR = ["match",["get","status"],
+  "Received","#e8a33d","In Progress","#3b7dd8","Closed","#4a9d5b","Canceled","#9aa4ab","#e8a33d"];
 
 const fmt$ = n => n==null ? "–" : (n>=1e9 ? "$"+(n/1e9).toFixed(2)+"B"
                  : n>=1e6 ? "$"+(n/1e6).toFixed(2)+"M"
@@ -147,7 +170,7 @@ const median = arr => { if(!arr.length) return null; const a=arr.slice().sort((x
 const el = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let ATTR=null, SEARCH=null, ready=false;
+let ATTR=null, SEARCH=null, REPORTS=null, ready=false;
 
 let protocol = new pmtiles.Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -181,7 +204,55 @@ map.on("load", ()=>{
   map.on("mouseenter","parcels-fill",()=>map.getCanvas().style.cursor="pointer");
   map.on("mouseleave","parcels-fill",()=>map.getCanvas().style.cursor="");
   ready=true; maybeDone();
+
+  // ---- 311 service requests overlay ----
+  fetch(DATA_REPORTS).then(r=>r.json()).then(gj=>{
+    REPORTS=gj;
+    map.addSource("reports", { type:"geojson", data:gj });
+    map.addLayer({ id:"r311-points", type:"circle", source:"reports", paint:{
+      "circle-radius":["interpolate",["linear"],["zoom"], 9,2.5, 13,4.5, 16,8],
+      "circle-color":R311_COLOR,
+      "circle-opacity":["case",["==",["get","precise"],1],0.85,0.12],
+      "circle-stroke-color":R311_COLOR,
+      "circle-stroke-width":1.4,
+      "circle-stroke-opacity":0.9 } });
+
+    map.on("click","r311-points", e=>{
+      const p=e.features[0].properties;
+      const approx = p.precise==1 ? "" : ' · <span style="color:#b26b00">approx. location</span>';
+      new maplibregl.Popup({maxWidth:"290px"}).setLngLat(e.lngLat).setHTML(
+        '<div style="font:13px system-ui,Segoe UI,Arial;color:#1c2b36">'+
+        '<div style="font-weight:700">'+esc(p.type)+'</div>'+
+        '<div style="color:#5b6b78;margin:2px 0">'+esc(p.status)+' · '+esc(p.date)+approx+'</div>'+
+        '<div style="margin:2px 0">'+esc(p.addr)+', '+esc(p.city)+' '+esc(p.zip)+'</div>'+
+        (p.desc?'<div style="margin-top:4px">'+esc(p.desc)+'</div>':'')+'</div>').addTo(map);
+    });
+    map.on("mouseenter","r311-points",()=>map.getCanvas().style.cursor="pointer");
+    map.on("mouseleave","r311-points",()=>map.getCanvas().style.cursor="");
+
+    const types=[...new Set(gj.features.map(f=>f.properties.type))].sort();
+    const sel=el("r311Type");
+    types.forEach(t=>{ const o=document.createElement("option"); o.value=t; o.textContent=t; sel.appendChild(o); });
+    ["r311On","r311Type","r311Status"].forEach(id=>{
+      el(id).addEventListener("change",apply311); el(id).addEventListener("input",apply311); });
+    apply311();
+  }).catch(()=>{ el("r311Count").textContent="Could not load reports.geojson"; });
 });
+
+function apply311(){
+  if(!map.getLayer("r311-points")) return;
+  const on=el("r311On").checked, t=el("r311Type").value, s=el("r311Status").value;
+  map.setLayoutProperty("r311-points","visibility", on?"visible":"none");
+  el("legend311").style.display = on?"block":"none";
+  const f=["all"];
+  if(t) f.push(["==",["get","type"],t]);
+  if(s) f.push(["==",["get","status"],s]);
+  map.setFilter("r311-points", f.length>1?f:null);
+  let n=0;
+  if(on && REPORTS){ for(const ft of REPORTS.features){ const p=ft.properties;
+    if(t&&p.type!==t) continue; if(s&&p.status!==s) continue; n++; } }
+  el("r311Count").textContent = on ? (n.toLocaleString()+" reports shown"+((t||s)?" (filtered)":"")) : "Hidden";
+}
 
 fetch(DATA_ATTRS).then(r=>r.json()).then(j=>{
   ATTR=j;
