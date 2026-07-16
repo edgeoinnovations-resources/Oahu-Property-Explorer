@@ -98,7 +98,7 @@
       <input id="fAcres" type="number" step="0.05" placeholder="0">
       <h2>Place</h2>
       <label>Town</label>
-      <select id="fTown"><option value="">All towns</option></select>
+      <select id="fTown"><option value="">All towns</option><option value="none">None — hide parcels</option></select>
       <button class="reset" id="reset">Reset filters</button>
 
       <h2>311 service requests</h2>
@@ -302,11 +302,22 @@ function readFilters(){
   const min=parseFloat(el("fMin").value), max=parseFloat(el("fMax").value), ac=parseFloat(el("fAcres").value);
   return { min:isNaN(min)?null:min, max:isNaN(max)?null:max,
     type:el("fType").value, owner:el("fOwner").value, acres:isNaN(ac)?null:ac,
-    town:el("fTown").value===""?null:parseInt(el("fTown").value) };
+    town:el("fTown").value===""?null:(el("fTown").value==="none"?"none":parseInt(el("fTown").value)) };
 }
 
 function apply(){
   if(!ready || !ATTR) return; const f=readFilters();
+
+  // "None" hides all parcel data (keeps basemap + 311 overlay visible)
+  const hideParcels = f.town==="none";
+  ["parcels-fill","parcels-line","parcels-highlight"].forEach(id=>{
+    if(map.getLayer(id)) map.setLayoutProperty(id,"visibility", hideParcels?"none":"visible"); });
+  if(hideParcels){
+    el("kCount").textContent="0"; ["kMed","kAvg","kSum"].forEach(id=>el(id).textContent="–");
+    el("chartHist").innerHTML=""; el("chartMix").innerHTML="";
+    return;
+  }
+
   const mf=["all"];
   if(f.min!=null) mf.push([">=",["coalesce",["get","TOTAL_VAL"],-1], f.min]);
   if(f.max!=null) mf.push(["<=",["coalesce",["get","TOTAL_VAL"],1e15], f.max]);
